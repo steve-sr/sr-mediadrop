@@ -6,6 +6,12 @@ import subprocess
 import shutil
 from datetime import datetime
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 import yt_dlp
 from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect
 from flask_socketio import SocketIO
@@ -21,15 +27,71 @@ socketio = SocketIO(
     engineio_logger=False
 )
 
-BASE_DIR = os.getcwd()
-DOWNLOAD_DIR = os.path.join(BASE_DIR, "downloads")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+DEFAULT_DOWNLOAD_DIR = os.environ.get(
+    "MEDIADROP_DOWNLOAD_DIR",
+    os.path.join(BASE_DIR, "downloads")
+)
 
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 
 APP_PIN = os.environ.get("MEDIADROP_PIN", "1234")
+
+def load_app_settings():
+    default_settings = {
+        "download_dir": DEFAULT_DOWNLOAD_DIR
+    }
+
+    if not os.path.exists(SETTINGS_FILE):
+        return default_settings
+
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as file:
+            saved = json.load(file)
+    except Exception:
+        return default_settings
+
+    if not isinstance(saved, dict):
+        return default_settings
+
+    default_settings.update({
+        key: value
+        for key, value in saved.items()
+        if value
+    })
+
+    return default_settings
+
+def save_app_settings(settings):
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as file:
+        json.dump(settings, file, indent=2, ensure_ascii=False)
+
+def normalize_download_dir(path):
+    path = str(path or "").strip()
+
+    if not path:
+        path = DEFAULT_DOWNLOAD_DIR
+
+    path = os.path.expanduser(path)
+
+    if not os.path.isabs(path):
+        path = os.path.join(BASE_DIR, path)
+
+    return os.path.abspath(path)
+
+def apply_runtime_settings():
+    global DOWNLOAD_DIR
+
+    settings = load_app_settings()
+    DOWNLOAD_DIR = normalize_download_dir(settings.get("download_dir"))
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+    return settings
+
+apply_runtime_settings()
 
 jobs = {}
 
@@ -87,11 +149,25 @@ def clean_error(error):
     if "Requested format is not available" in msg:
         return "El formato solicitado no está disponible. Prueba otra calidad o MP3."
 
-    if "Sign in to confirm" in msg or "not a bot" in msg:
-        return "YouTube pidió verificación. Prueba actualizar yt-dlp o usar otro video."
+    youtube_block_terms = [
+        "Sign in to confirm",
+        "not a bot",
+        "confirm you’re not a bot",
+        "confirm you're not a bot",
+        "This helps protect our community",
+    ]
+
+    if any(term in msg for term in youtube_block_terms):
+        return "YouTube activó una verificación temporal. Espera unos minutos, actualiza yt-dlp y prueba otro enlace si el bloqueo continúa."
 
     if "HTTP Error 429" in msg or "Too Many Requests" in msg:
-        return "La plataforma limitó temporalmente las solicitudes. Espera unos minutos e intenta otra vez."
+        return "La plataforma limitó temporalmente las solicitudes. Espera unos minutos antes de intentar de nuevo."
+
+    if "Video unavailable" in msg:
+        return "El video no está disponible para descarga desde este enlace."
+
+    if "Private video" in msg:
+        return "El video es privado o requiere una cuenta con permisos."
 
     if "Unsupported URL" in msg:
         return "Ese enlace no es compatible."
@@ -725,10 +801,45 @@ def server_status():
         "yt_dlp": check_command(["yt-dlp", "--version"]),
         "ffmpeg": check_command(["ffmpeg", "-version"]),
         "downloads_folder": os.path.exists(DOWNLOAD_DIR),
+        "downloads_path": DOWNLOAD_DIR,
         "downloads_count": len([
             f for f in os.listdir(DOWNLOAD_DIR)
             if os.path.isfile(os.path.join(DOWNLOAD_DIR, f))
         ]),
+    })
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    if not session.get("authenticated"):
+        return jsonify({"error": "No autorizado"}), 401
+
+    if request.method == "GET":
+        return jsonify({
+            "download_dir": DOWNLOAD_DIR,
+            "default_download_dir": DEFAULT_DOWNLOAD_DIR,
+            "ffmpeg_location": get_ffmpeg_location(),
+            "pin_is_default": APP_PIN == "1234",
+        })
+
+    data = request.json or {}
+    requested_dir = normalize_download_dir(data.get("download_dir"))
+
+    try:
+        os.makedirs(requested_dir, exist_ok=True)
+    except Exception:
+        return jsonify({
+            "error": "No se pudo crear o usar esa carpeta de descargas."
+        }), 400
+
+    save_app_settings({
+        "download_dir": requested_dir
+    })
+
+    apply_runtime_settings()
+
+    return jsonify({
+        "success": True,
+        "download_dir": DOWNLOAD_DIR
     })
 
 def process_queue(queue_id, queue_jobs):
@@ -815,7 +926,7 @@ if __name__ == "__main__":
     print("Servidor iniciado correctamente")
     print(f"Abre en tu Mac o PC: http://127.0.0.1:{port}")
     print(f"Para celular usa: http://IP-DE-TU-EQUIPO:{port}")
-    print(f"PIN: {APP_PIN}")
+    print("PIN configurado desde .env" if APP_PIN != "1234" else "PIN: 1234")
     print("")
 
     socketio.run(

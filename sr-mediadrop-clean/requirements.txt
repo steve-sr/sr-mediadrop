@@ -4,3 +4,4 @@ python-socketio
 python-engineio
 simple-websocket
 yt-dlp
+python-dotenv

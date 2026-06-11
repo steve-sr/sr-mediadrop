@@ -139,6 +139,11 @@
         <i data-lucide="trash-2"></i>
         Limpiar descargas
       </button>
+
+      <button class="tool-btn" onclick="loadSettings()">
+        <i data-lucide="settings"></i>
+        Configuración
+      </button>
     </section>
 
     <section id="statusPanel" class="panel hidden">
@@ -164,6 +169,30 @@
           <strong>Archivos</strong>
           <span id="statusFiles">--</span>
         </div>
+      </div>
+    </section>
+
+    <section id="settingsPanel" class="panel hidden">
+      <label>Configuración</label>
+
+      <div class="settings-form">
+        <div>
+          <span class="field-title">Carpeta de descargas</span>
+          <div class="url-box">
+            <i data-lucide="folder"></i>
+            <input id="downloadDirInput" type="text" placeholder="Ruta de descargas" />
+          </div>
+          <p class="field-help">Puedes usar una ruta completa o una ruta relativa al proyecto.</p>
+        </div>
+
+        <button class="preview-btn" onclick="saveSettings()">
+          <i data-lucide="save"></i>
+          Guardar configuración
+        </button>
+      </div>
+
+      <div class="settings-note" id="settingsNote">
+        Cargando configuración...
       </div>
     </section>
 

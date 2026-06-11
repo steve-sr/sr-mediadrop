@@ -9,15 +9,11 @@ build/
 dist/
 *.spec
 
-cookies.txt
-*.cookie
-*.cookies
-
 .env
-.env.*
+downloads/
+data/
+*.part
+*.ytdl
 
 .DS_Store
 Thumbs.db
-
-/data/
-/downloads/

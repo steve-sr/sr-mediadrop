@@ -544,11 +544,11 @@ async function loadInfoAutomatically(url) {
       resetFlow();
 
       if (data.error.includes("429") || data.error.includes("Too Many Requests")) {
-        setAutoStatus("error", "La plataforma limitó las solicitudes. Intenta de nuevo más tarde.");
+        setAutoStatus("error", "La plataforma limitó las solicitudes. Espera unos minutos.");
         showModal(
           "warning",
-          "Demasiadas solicitudes",
-          "TikTok o Instagram limitó temporalmente las solicitudes. Espera unos minutos o prueba con otro enlace."
+          "Límite temporal",
+          "La plataforma bloqueó temporalmente las solicitudes. Espera unos minutos, prueba otro enlace o reinicia la app más tarde."
         );
         return;
       }
@@ -746,6 +746,69 @@ async function logout() {
   window.location.href = "/";
 }
 
+
+async function loadSettings() {
+  const panel = $("settingsPanel");
+  panel.classList.toggle("hidden");
+
+  if (panel.classList.contains("hidden")) return;
+
+  try {
+    const res = await fetch("/settings");
+    const data = await res.json();
+
+    if (data.error) {
+      showModal("error", "Error", data.error);
+      return;
+    }
+
+    $("downloadDirInput").value = data.download_dir || "";
+
+    const pinText = data.pin_is_default
+      ? "PIN actual: 1234. Recomendado cambiarlo en el archivo .env."
+      : "PIN personalizado activo desde .env.";
+
+    $("settingsNote").textContent = `${pinText} FFmpeg: ${data.ffmpeg_location || "No detectado"}.`;
+
+  } catch {
+    showModal("error", "Error", "No se pudo cargar la configuración.");
+  }
+}
+
+async function saveSettings() {
+  const downloadDir = $("downloadDirInput").value.trim();
+
+  if (!downloadDir) {
+    showModal("warning", "Ruta requerida", "Escribe una carpeta de descargas válida.");
+    return;
+  }
+
+  try {
+    const res = await fetch("/settings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        download_dir: downloadDir,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      showModal("error", "No se pudo guardar", data.error);
+      return;
+    }
+
+    $("downloadDirInput").value = data.download_dir || downloadDir;
+    showModal("success", "Configuración guardada", "La carpeta de descargas fue actualizada.");
+
+  } catch {
+    showModal("error", "Error", "No se pudo guardar la configuración.");
+  }
+}
+
 async function loadStatus() {
   const panel = $("statusPanel");
   panel.classList.toggle("hidden");
@@ -763,6 +826,7 @@ async function loadStatus() {
     $("statusFfmpeg").className = data.ffmpeg ? "status-ok" : "status-bad";
 
     $("statusFolder").textContent = data.downloads_folder ? "OK" : "Error";
+    $("statusFolder").title = data.downloads_path || "";
     $("statusFolder").className = data.downloads_folder ? "status-ok" : "status-bad";
 
     $("statusFiles").textContent = data.downloads_count ?? 0;
